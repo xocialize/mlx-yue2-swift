@@ -30,19 +30,24 @@ Package: `mlxengine-audio/PROD/YuE2/mlx-yue2-swift` (`YuE2Core`, `yue2-gates`, `
   NVIDIA, `THIRD_PARTY_NOTICES.md`).
 - C7: `weightLicense = "CC-BY-NC-4.0"` (an SPDX id; MLXToolKit classifies it `.rejectedWeight` — under `.advisory`
   that is a recorded advisory, under `.permissiveOnly` a refusal by construction; never allowlisted). Port code MIT.
-- The offer: `named_only: true`, `license.accepted_required: true`, `license.commercial_use: false`,
-  `terms_url` = `https://huggingface.co/m-a-p/YuE2-3B/blob/main/LICENSE`, `notice` = *"YuE2-3B by M-A-P
-  (huggingface.co/m-a-p/YuE2-3B), CC BY-NC 4.0. Non-commercial use only: don't sell, license or monetize songs made
-  with it, or use them in paid or client work."*, `notes` = *"Covers and supplied lyrics may need the original song's
-  rights; this model's licence doesn't grant them."* The surface summaries carry the same sentence.
+- The offer (operator, 2026-10-24, A-6 applied — the strings live in `Sources/YuE2Core/YuE2Licence.swift`):
+  `named_only: true`, `license.accepted_required: true`, **`license.commercial_use: "conditional"`** (AUDIO-EVALUATION
+  A-6: allowed under a condition the engine cannot verify), `terms_url` = the HF LICENSE, `notice` = *"YuE2-3B by M-A-P
+  (huggingface.co/m-a-p/YuE2-3B), CC BY-NC 4.0 with M-A-P's individual-creator permission (MODEL_LICENSE, 2026-09-16).
+  Individuals acting in a personal capacity — personal users, content creators, musicians — may publish, sell and
+  license songs made with it. Companies may not use the model commercially without a licence from M-A-P
+  (ryuanab@connect.ust.hk); a hosted service making songs for paying users is commercial use. Responsible use is a
+  condition of the permission."*, `notes` = *"Covers and supplied lyrics may need the original song's rights; this
+  model's licence doesn't grant them."* `policy.license: commercial-use` admits the offer only once the operator has
+  accepted the terms (A-6). The surface summaries carry the same sentence.
 - **Two licence texts exist upstream (found 2026-10-24).** The HF `LICENSE` on all three weight repos is the plain
   CC BY-NC 4.0 text plus the scope/attribution header. The GitHub `MODEL_LICENSE` (same header) adds an *"Individual
   creator permission and academic use (2026-09-16)"* section: individuals acting in an individual capacity may
   generate, publish, sell and license outputs without a commercial licence; companies may not use the weights
   commercially; redistribution of the weights stays CC BY-NC (attribution to YuE2 + model name + repo). The port
-  declares `commercial_use: false` as directed and ships BOTH texts with the bundles (`LICENSE` = HF text,
-  `MODEL_LICENSE` = GitHub text, with provenance). Whether the offer becomes `commercial_use: "conditional"` (A-6)
-  is the operator's call, raised on AB-A-0200.
+  ships BOTH texts with the bundles (`LICENSE` = HF text, `MODEL_LICENSE` = GitHub text, with provenance). The
+  operator chose `commercial_use: "conditional"` (A-6) on 2026-10-24, with the individual-creator condition in the
+  notice (AB-A-0200 thread).
 - ML[X] Audio Studio stays permissive-only (AB-D-0060): no Studio section. No MARKETING-HIGHLIGHTS entry.
 - Publishing: mlx-community under the standing authorization needs a check of the CC BY-NC case (the AuK precedent
   published Qwen-Research weights with licence + NOTICE + "modified" statement; CC BY-NC 4.0 §3(a) asks for the

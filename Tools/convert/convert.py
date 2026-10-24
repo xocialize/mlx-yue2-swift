@@ -45,7 +45,9 @@ def licences(snap: Path, github: Path | None, out: Path, repo: str) -> None:
         f"YuE2, {repo.split('/')[-1]}, https://huggingface.co/{repo}.\n"
         "LICENSE is the Hugging Face repo's text (plain CC BY-NC 4.0 + scope header). MODEL_LICENSE is the GitHub\n"
         "release's text (multimodal-art-projection/YuE@1647252), which adds the 'Individual creator permission and\n"
-        "academic use (2026-09-16)' section. Code licences: Apache-2.0 (YuE), MIT (Oobleck / SnakeBeta; licenses/).\n")
+        "academic use (2026-09-16)' section: individuals acting in a personal capacity may publish, sell and license\n"
+        "songs made with the model; companies may not use it commercially without a licence from M-A-P\n"
+        "(ryuanab@connect.ust.hk). Code licences: Apache-2.0 (YuE), MIT (Oobleck / SnakeBeta; licenses/).\n")
 
 
 def convert_backbone(snap: Path, github: Path | None, out: Path, dtype: str) -> None:

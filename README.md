@@ -5,11 +5,11 @@
 PyTorch code (`multimodal-art-projection/YuE@1647252`, `src/yue2`), gated against an fp32 oracle; no third-party MLX
 conversion is used.
 
-**Licence.** This code is MIT. The weights (YuE2-3B, YuE2-Vae, YuE2-Vae-legacy) are **CC BY-NC 4.0**: this is a
-non-commercial, named-only engine model, and songs made with it are non-commercial. The GitHub `MODEL_LICENSE` adds an
-individual-creator permission (personal users, creators and musicians acting in an individual capacity may monetize
-outputs; companies may not use the weights commercially) that the Hugging Face `LICENSE` files lack — the converter
-ships both texts with every bundle. Attribution per the weights' licence: YuE2, the model name, and
+**Licence.** This code is MIT. The weights (YuE2-3B, YuE2-Vae, YuE2-Vae-legacy) are **CC BY-NC 4.0**, and the GitHub
+`MODEL_LICENSE` adds an individual-creator permission (personal users, creators and musicians acting in an individual
+capacity may publish, sell and license their songs; companies may not use the weights commercially) that the Hugging
+Face `LICENSE` files lack — the converter ships both texts with every bundle. As an engine offer it is named-only,
+terms-accepted-before-first-use, `commercial_use: "conditional"` (`YuE2Licence.swift` holds the exact strings). Attribution per the weights' licence: YuE2, the model name, and
 https://huggingface.co/m-a-p/YuE2-3B.
 
 ## What it does
