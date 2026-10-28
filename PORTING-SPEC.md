@@ -20,7 +20,7 @@ decoder; same architecture). The scratch side (the upstream clone, the venv, gol
 | V2 Swift core | fp32 parity on every lane, both cases: tokenizer exact; AR argmax 100 %, logits ≤ 1.8e-6; NAR ≤ 1.6e-5 (velocity) / 4.8e-5 (32 steps); VAE ≤ 4.6e-6; e2e audio ≤ 1.7e-4 |
 | V2b tiers | bf16 and 8-bit (AR, NAR, both) pass the pre-registered velocity rule (≤ 1.6e-2); 4-bit AR fails through the cached prefix K/V (0.2 after 32 steps) — see MEASUREMENTS |
 | V3 engine | `MLXYuE2` on `Capability.music` (contract 1.56.0): planning full / off, score in and out, cfg, a 360 s cap; CC-BY-NC-4.0 weights (one advisory, never allowlisted), named-only; 16 offline conformance tests; one song + its score re-rendered per tier through `MLXServeEngine`; footprints from phys_footprint incl. the 360 s envelope — see MEASUREMENTS §V3 |
-| V4 publish | NOT started — the operator's decision (§1); what it would publish is listed in MEASUREMENTS §V3 |
+| V4 publish | DONE 2026-10-28 on the operator's decision (AB-D-0186): github.com/xocialize/mlx-yue2-swift `v0.1.0`; `mlx-community/YuE2-3B-bf16` @ 7024750 and `mlx-community/YuE2-Vae-fp32` @ 486147e, sha256-equal to the gated bundles, pinned in `YuE2Configuration`; a fresh download passes `validate` through MLXServeEngine — MEASUREMENTS §V4 |
 
 Package: `mlxengine-audio/PROD/YuE2/mlx-yue2-swift` (`YuE2Core`, `yue2-gates`, `Tools/`). Numbers: `MEASUREMENTS.md`.
 
@@ -49,9 +49,11 @@ Package: `mlxengine-audio/PROD/YuE2/mlx-yue2-swift` (`YuE2Core`, `yue2-gates`, `
   operator chose `commercial_use: "conditional"` (A-6) on 2026-10-24, with the individual-creator condition in the
   notice (AB-A-0200 thread).
 - ML[X] Audio Studio stays permissive-only (AB-D-0060): no Studio section. No MARKETING-HIGHLIGHTS entry.
-- Publishing: mlx-community under the standing authorization needs a check of the CC BY-NC case (the AuK precedent
-  published Qwen-Research weights with licence + NOTICE + "modified" statement; CC BY-NC 4.0 §3(a) asks for the
-  same: attribution, licence notice, modification notice, link). Decided at V4.
+- Publishing: **decided by the operator 2026-10-28 (AB-D-0186)** — "Publish YuE2 V4: the code as
+  xocialize/mlx-yue2-swift v0.1.0 and the weights to mlx-community with the non-commercial cards, licence files and
+  notice." Each weight repo carries the HF LICENSE, the GitHub MODEL_LICENSE, a NOTICE (attribution + the CC BY-NC 4.0
+  §3(a)(1)(B) modification statement) and a card with the non-commercial terms and the individual-creator permission up
+  top (`license: cc-by-nc-4.0`, `license_link` the HF LICENSE). The fleet's first publication of non-commercial weights.
 
 ## 2. Architecture as read (verified against `config.json` and `src/yue2/*.py` at the pin)
 

@@ -1,8 +1,8 @@
 #!/bin/bash
 # V2b tier matrix (PORTING-SPEC §3): nar + e2e lanes per tier on both goldens, then two real renders (bf16; 8-bit AR + bf16 NAR).
-cd "$(dirname "$0")"
+# Run from the work dir (oracle/goldens, weights/, receipts/); YUE2_GATES overrides the gates binary.
 export MLX_ENABLE_TF32=0
-B=/Volumes/Satechi/Development/mlxengine-audio/PROD/YuE2/mlx-yue2-swift/.build/out/Products/Release/yue2-gates
+B=${YUE2_GATES:-$(cd "$(dirname "$0")/.." && pwd)/.build/release/yue2-gates}
 OUT=receipts/v2b-tiers.txt; : > "$OUT"
 run() { echo "== $*" | tee -a "$OUT"; "$B" "$@" 2>&1 | grep -E "max\||LANE|NAR \(|solve|ERROR|loaded" | tee -a "$OUT"; }
 for tier in "bf16:--dtype bf16" "ar8-narbf16:--dtype bf16 --ar-bits 8" "ar8-nar8:--dtype bf16 --ar-bits 8 --nar-bits 8" "ar4-nar8:--dtype bf16 --ar-bits 4 --nar-bits 8"; do

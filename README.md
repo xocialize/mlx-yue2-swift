@@ -57,7 +57,7 @@ its ABC score on `MusicResponse.score`; supply an edited one back through `Music
 import MLXServeCore, MLXToolKit, MLXYuE2
 let engine = MLXServeEngine()   // CC-BY-NC-4.0 is outside .permissiveOnly: registered with one licence advisory
 let id = try await engine.register(YuE2Package.registration,
-                                   configuration: YuE2Configuration(tier: .bf16, modelDirectory: model, vaeDirectory: vae),
+                                   configuration: YuE2Configuration(tier: .bf16, modelsRootDirectory: modelsRoot),
                                    id: "yue2-3b")
 try await engine.prepare(.music, package: id)
 let song = try await engine.run(MusicRequest(caption: "warm piano pop, female vocal, 88 BPM",
@@ -74,6 +74,19 @@ adapter reads. The host never makes it the capability's default. Footprints (phy
 `yue2-gates validate <model> <vae> <request.json> <outdir>` runs the consumer path (register → prepare → a song → its own
 score re-rendered → refusals → evict); `yue2-gates envelope <model> <vae> <score.abc>` measures the 360 s worst case.
 
+## Install
+
+```swift
+.package(url: "https://github.com/xocialize/mlx-yue2-swift", from: "0.1.0")   // products: MLXYuE2 (engine), YuE2Core
+```
+
+Weights (CC BY-NC 4.0, both licence texts and a NOTICE in each repo):
+[mlx-community/YuE2-3B-bf16](https://huggingface.co/mlx-community/YuE2-3B-bf16) (7.26 GB) and
+[mlx-community/YuE2-Vae-fp32](https://huggingface.co/mlx-community/YuE2-Vae-fp32) (265 MB). `YuE2Configuration` pins the
+published commits, so the engine materializes exactly the hash-verified bytes; with `modelsRootDirectory` set and no explicit
+folders, `prepare` resolves them from the store.
+
 ## Status
 
-See `PORTING-SPEC.md` §0 and `MEASUREMENTS.md`. V0–V3 done; V4 (publishing code and weights) is the operator's decision.
+See `PORTING-SPEC.md` §0 and `MEASUREMENTS.md`. V0–V4 done: v0.1.0 and the two weight repos were published on the operator's
+decision of 2026-10-28 (AB-D-0186).

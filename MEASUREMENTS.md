@@ -165,6 +165,41 @@ is declared on the manifest.
 - Then: pin the revisions in `YuE2Configuration`, a fresh-download render through the engine, and the registry row
   (mlx-engine's `model-registry.md`, asked of mlx-engine).
 
+## V4 — published (2026-10-28, the operator's decision AB-D-0186)
+
+The operator: "Publish YuE2 V4: the code as xocialize/mlx-yue2-swift v0.1.0 and the weights to mlx-community with the
+non-commercial cards, licence files and notice."
+
+**Code:** [github.com/xocialize/mlx-yue2-swift](https://github.com/xocialize/mlx-yue2-swift), public, MIT. Tag **`v0.1.0`**
+(`from: "0.1.0"`; depends on mlx-swift ≥ 0.32.3 and mlx-engine-swift ≥ 0.71.0; products `MLXYuE2`, `YuE2Core`).
+
+**Weights** (CC BY-NC 4.0; the names `YuE2Configuration` declares and now pins):
+
+| repo @ commit | contents | size | sha256 of the weights == the gated local bundle |
+|---|---|---|---|
+| [`mlx-community/YuE2-3B-bf16`](https://huggingface.co/mlx-community/YuE2-3B-bf16) @ `7024750` | backbone (628 bf16 tensors), `qwen.tiktoken`, `config.json` | 7.26 GB | `809d625e…0ed1e8c` ✓ |
+| [`mlx-community/YuE2-Vae-fp32`](https://huggingface.co/mlx-community/YuE2-Vae-fp32) @ `486147e` | VAE decoder (173 fp32 tensors, weight_norm folded, encoder dropped), `config.json` | 265 MB | `2bdbde5f…f0cfd6` ✓ |
+
+Each repo ships the HF `LICENSE` (CC BY-NC 4.0), the GitHub `MODEL_LICENSE` (with the 2026-09-16 individual-creator
+permission), a `NOTICE` (attribution to M-A-P / YuE2 / the model / its repo; the §3(a)(1)(B) modification statement;
+"not endorsed by M-A-P"), `THIRD_PARTY_NOTICES.md` + `licenses/` (Oobleck / SnakeBeta MIT), and a card that opens with
+the non-commercial terms and the individual-creator permission (`license: cc-by-nc-4.0`, `license_link` the HF LICENSE,
+`base_model` m-a-p's repo, `library_name: mlx`). Not published: Vae-legacy, pre-quantised 8-bit bundles (the 8-bit tiers
+quantise at load). The cards and NOTICEs as uploaded: `mlxengine-audio/WIP/yue2-port/publish/*/`.
+
+**Published-artifact check** (`receipts/v4-published-artifact-check.log`): both repos downloaded at the pinned commits into
+an empty cache. All 19 files are sha256-equal to the upload folders, 0 mismatches. Then `yue2-gates --store <cache>
+validate` at bf16: no explicit folders; the host hands the engine that models root (`useModelStore`), and the package
+resolves the pinned snapshots. Results:
+- `needsDownload` false; one licence advisory;
+- resident 7.58 GB, peak 14.09 GB;
+- the city_lights song and its score re-render pass, along with the nine refusals: **`RESULT: PASS`**;
+- the song is **byte-identical** to the V3 song rendered from the local bundles (md5 `a746100b…`), so the published bytes
+  are the gated bytes end to end.
+
+The first `--store` attempt failed on the harness, not the artifact: the engine stamps its own models root over the
+configuration's, so a host sets it with `useModelStore`. Wall times (35.6 s / 29.1 s) overlapped the E27 HeartMuLa render.
+
 ## Not measured
 
 - A sampled 3-min song (the engine songs ended on their own at 58–69 s; the 360 s envelope is teacher-forced).

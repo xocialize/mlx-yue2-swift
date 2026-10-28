@@ -137,7 +137,7 @@ final class MaterializationConformanceTests: XCTestCase {
         }
     }
 
-    /// Two roles: the backbone bundle and the VAE decoder bundle (the V4 candidate repos), the same on every tier (tiers quantise
+    /// Two roles: the backbone bundle and the VAE decoder bundle (the V4-published repos), the same on every tier (tiers quantise
     /// at load).
     func testWeightSources() {
         for tier in YuE2Tier.allCases {
@@ -148,6 +148,9 @@ final class MaterializationConformanceTests: XCTestCase {
             XCTAssertEqual(c.weightSources[1].matching, YuE2Configuration.vaeFiles)
         }
         XCTAssertEqual(YuE2Configuration(revision: "abc", vaeRevision: "def").weightSources.map(\.revision), ["abc", "def"])
+        // nil = the V4-published commits (hash-verified against the gated bundles)
+        XCTAssertEqual(YuE2Configuration().weightSources.map(\.revision),
+                       ["7024750ff947a1c57191a34908e14a8f55548516", "486147eeb1e8397a87a7545ab51d9df95db60a4c"])
         XCTAssertEqual(YuE2Configuration().cacheLimitBytes, 1 << 30)
     }
 

@@ -9,8 +9,9 @@ not the absolute rate (pre-registered rule: within 10 points of bf16).
 import argparse, json, re, string, glob, os
 import jiwer, mlx_whisper
 
-WHISPER = (glob.glob(os.path.expanduser("~/.cache/huggingface/hub/models--mlx-community--whisper-large-v3-turbo/snapshots/*/"))
-           or glob.glob("/Volumes/Satechi/Models/models--mlx-community--whisper-large-v3-turbo/snapshots/*/"))[0]
+_HUB = os.environ.get("HF_HUB_CACHE") or os.path.join(os.environ.get("HF_HOME", os.path.expanduser("~/.cache/huggingface")), "hub")
+WHISPER = os.environ.get("WHISPER_DIR") or (glob.glob(os.path.join(_HUB, "models--mlx-community--whisper-large-v3-turbo/snapshots/*/"))
+                                            or glob.glob(os.path.expanduser("~/.cache/huggingface/hub/models--mlx-community--whisper-large-v3-turbo/snapshots/*/")))[0]
 
 def norm(text, lang):
     text = re.sub(r"\[[^\]]*\]", " ", text)                     # [Verse] markers

@@ -12,7 +12,8 @@
 //                                                      through the NAR prefill, the 32-step solve and the VAE; phys_footprint peak
 //
 // Options (before the subcommand): --cpu, --dtype float32|bfloat16, --ar-bits N, --nar-bits N; for validate / envelope:
-// --tier bf16|ar8|int8 (the package tiers; sets the bits), --cache-gb G (MLX cache limit, default 1).
+// --tier bf16|ar8|int8 (the package tiers; sets the bits), --cache-gb G (MLX cache limit, default 1), --store <models root>
+// (validate: resolve the pinned published repos under that root instead of the explicit <model> <vae> folders).
 import Darwin
 import Foundation
 import MLX
@@ -28,6 +29,7 @@ var dtype: DType = .float32
 var quant = YuE2Quantization.none
 var tier = YuE2Tier.bf16
 var cacheGB = 1.0
+var storeRoot: URL? = nil
 while let a = args.first, a.hasPrefix("--") {
     args.removeFirst()
     switch a {
@@ -37,6 +39,7 @@ while let a = args.first, a.hasPrefix("--") {
     case "--nar-bits": quant.narBits = Int(args.removeFirst())
     case "--tier": tier = YuE2Tier(rawValue: args.removeFirst())!; quant = tier.quantization
     case "--cache-gb": cacheGB = Double(args.removeFirst())!
+    case "--store": storeRoot = URL(fileURLWithPath: args.removeFirst())
     default: fatalError("unknown option \(a)")
     }
 }
@@ -216,16 +219,19 @@ func runValidate(_ modelDir: URL, _ vaeDir: URL, _ reqPath: URL, _ outDir: URL) 
     let sampler = Footprint.Sampler()
     let before = sampler.mark()
     let engine = MLXServeEngine()   // the default policy (.permissiveOnly, .advisory): CC-BY-NC-4.0 registers with ONE advisory
+    if let storeRoot { await engine.useModelStore(ModelStore(root: storeRoot)) }   // the host's models root (the engine stamps it on the config)
     let t0 = Date()
-    let configuration = YuE2Configuration(tier: tier, modelDirectory: modelDir, vaeDirectory: vaeDir,
-                                          cacheLimitBytes: UInt64(cacheGB * Double(1 << 30)))
+    // --store: no explicit folders — the package resolves its pinned repos' snapshots under the models root (the published path)
+    let configuration = storeRoot.map { YuE2Configuration(tier: tier, modelsRootDirectory: $0, cacheLimitBytes: UInt64(cacheGB * Double(1 << 30))) }
+        ?? YuE2Configuration(tier: tier, modelDirectory: modelDir, vaeDirectory: vaeDir, cacheLimitBytes: UInt64(cacheGB * Double(1 << 30)))
+    if let storeRoot { print("  store \(storeRoot.path): resolves \(configuration.resolvedBundles(storeRoot: storeRoot).map { "\($0.model.path) + \($0.vae.path)" } ?? "NOTHING")") }
     let id = try await engine.register(YuE2Package.registration, configuration: configuration, id: PackageID("yue2-3b"))
     let advisories = await engine.licenseAdvisories
     check("registered \(id.rawValue); licence advisories: \(advisories.count)",
           advisories.count == 1 && advisories[0].license == "CC-BY-NC-4.0" && advisories[0].layer == .weight,
           advisories.map(\.summary).joined(separator: "; "))
     let needs = await engine.needsDownload(.music, package: id)
-    check("needsDownload == \(needs) with the explicit bundles", !needs)
+    check("needsDownload == \(needs) with the \(storeRoot == nil ? "explicit bundles" : "downloaded store")", !needs)
     try await engine.prepare(.music, package: id)
     Thread.sleep(forTimeInterval: 0.3)
     let afterLoad = sampler.mark()
