@@ -8,9 +8,10 @@ The Python and shell side of the port. Nothing here assumes a directory layout: 
 | `convert/convert.py` | **V1 converter.** `m-a-p/YuE2-3B` + `YuE2-Vae(-legacy)` → MLX-layout bundles: backbone keys verbatim (bf16, or fp32 for the gate); VAE decoder with weight-norm folded and convs in (O, K, I); encoder dropped; both licence texts + a NOTICE in every bundle. `--model <snap> --vae <snap> [--vae-legacy <snap>] --github <YuE clone> --out <dir> [--dtype float32\|bfloat16]` |
 | `convert/gate_v1.py` | **V1 gate.** Converted tensors equal upstream's own folded weights (max \|Δ\| 0), the bf16 backbone is bit-equal to the checkpoint, and MLX's conv / conv_transpose reproduce torch on the converted layouts. Run with `MLX_ENABLE_TF32=0`. |
 | `asr/score_lyrics.py` | **V2b lyric check.** mlx-whisper large-v3-turbo WER (en) / CER (zh) against the lyric sheet; the number that matters is the drift between tiers. |
+| `run_v3.sh` | **V3 engine lanes.** Per tier (`bf16`, `ar8`, `int8`): `validate` through MLXServeEngine (register → prepare → a song → its score re-rendered → nine refusals → evict, phys_footprint throughout) and `envelope` (the 360 s / 4 096-score-token worst case); `OFF=1` adds a cot=off song. `run_v3.sh <work-dir>` |
 | `run_v2b.sh` | **V2b matrix.** `nar` + `e2e` lanes per tier (bf16; 8-bit AR + bf16 NAR; 8-bit both; 4-bit AR + 8-bit NAR) on both goldens, then two real renders. |
 
-Swift-side lanes are `yue2-gates` subcommands: `tokenizer`, `ar`, `nar`, `vae`, `e2e`, `render` (header of
+Swift-side lanes are `yue2-gates` subcommands: `tokenizer`, `ar`, `nar`, `vae`, `e2e`, `render`, `validate`, `envelope` (header of
 `Sources/yue2-gates/main.swift`).
 
 **Environment.** The oracle was validated with upstream's pins: torch 2.10.0, transformers 4.57.6, safetensors 0.7.0,

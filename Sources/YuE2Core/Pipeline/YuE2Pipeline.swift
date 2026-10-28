@@ -125,8 +125,8 @@ public final class YuE2Pipeline {
     }
 
     /// Tiled VAE decode → (S, 2) fp32 clipped to ±1.
-    public func decode(_ latents: MLXArray, progress: ((YuE2Progress) -> Void)? = nil) -> MLXArray {
-        let y = vae.decodeTiled(latents, onTile: { t, n in progress?(.decode(tile: t, total: n)) })
+    public func decode(_ latents: MLXArray, progress: ((YuE2Progress) -> Void)? = nil, isCancelled: (() -> Bool)? = nil) throws -> MLXArray {
+        let y = try vae.decodeTiled(latents, onTile: { t, n in progress?(.decode(tile: t, total: n)) }, isCancelled: isCancelled)
         return clip(y, min: -1, max: 1)
     }
 
@@ -142,7 +142,7 @@ public final class YuE2Pipeline {
         eval(latents)
         timing["nar_seconds"] = Date().timeIntervalSince(t1)
         let t2 = Date()
-        let audio = decode(latents, progress: progress)
+        let audio = try decode(latents, progress: progress, isCancelled: isCancelled)
         let samples = audio.asArray(Float.self)
         timing["vae_seconds"] = Date().timeIntervalSince(t2)
         timing["e2e_seconds"] = Date().timeIntervalSince(t0)

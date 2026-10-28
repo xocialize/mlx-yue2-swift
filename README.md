@@ -44,7 +44,36 @@ oracle's tokens and noise. Numbers: `MEASUREMENTS.md`.
 Build with the Xcode build system so MLX's metallib ships: `swift build -c release --build-system swiftbuild`.
 The exact fp32 lane needs `MLX_ENABLE_TF32=0`.
 
+## Engine package (`MLXYuE2`)
+
+`YuE2Package` serves `Capability.music` (mlx-engine-swift contract 1.56.0, `MusicRequest` → `MusicResponse`) as the surface
+`yue2-3b`. It declares exactly what the V2 gates covered — `MusicControls(features: [.planning, .score, .guidanceScale],
+planningModes: [.full, .off], maxDurationSeconds: 360)` — and the engine refuses everything else before admission
+(`melody`, reference or source audio, anchors, a vocal language, a length past 360 s). `durationSeconds` caps the codec tokens
+(25 per second); the song ends on its own when the lyrics do, and `truncated` says when a cap cut it. A `full` run returns
+its ABC score on `MusicResponse.score`; supply an edited one back through `MusicRequest.score`.
+
+```swift
+import MLXServeCore, MLXToolKit, MLXYuE2
+let engine = MLXServeEngine()   // CC-BY-NC-4.0 is outside .permissiveOnly: registered with one licence advisory
+let id = try await engine.register(YuE2Package.registration,
+                                   configuration: YuE2Configuration(tier: .bf16, modelDirectory: model, vaeDirectory: vae),
+                                   id: "yue2-3b")
+try await engine.prepare(.music, package: id)
+let song = try await engine.run(MusicRequest(caption: "warm piano pop, female vocal, 88 BPM",
+                                             lyrics: "[Verse]\n…\n[Chorus]\n…", seed: 831001), package: id) as! MusicResponse
+// song.audio: 48 kHz stereo .wav; song.score: the ABC plan; song.truncated
+```
+
+Tiers (`YuE2Tier`, quantised at load from the bf16 bundle): `bf16`, `ar8` (8-bit AR path), `int8` (8-bit AR and NAR);
+4-bit AR is not a tier (V2b). The licence fields: `weightLicense` CC-BY-NC-4.0 (never allowlisted — ML[X] Audio Studio
+never loads it), MIT port code, the operator's notice as a `.required` `LicenseNotice` and the rights note as
+`.informational`; `YuE2Package.namedOnly` / `.acceptedRequired` / `.commercialUse` carry the offer fields a media-engine
+adapter reads. The host never makes it the capability's default. Footprints (phys_footprint): `MEASUREMENTS.md` §V3.
+
+`yue2-gates validate <model> <vae> <request.json> <outdir>` runs the consumer path (register → prepare → a song → its own
+score re-rendered → refusals → evict); `yue2-gates envelope <model> <vae> <score.abc>` measures the 360 s worst case.
+
 ## Status
 
-See `PORTING-SPEC.md` §0 and `MEASUREMENTS.md`. The engine package (`MLXYuE2`) lands on a music capability once
-MLXEngine defines one (AB-A-0201).
+See `PORTING-SPEC.md` §0 and `MEASUREMENTS.md`. V0–V3 done; V4 (publishing code and weights) is the operator's decision.

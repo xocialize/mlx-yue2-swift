@@ -19,8 +19,8 @@ decoder; same architecture). The scratch side (the upstream clone, the venv, gol
 | V1 converter | bit-equal: 628 backbone tensors, 173 decoder tensors (max \|Δ\| 0); MLX conv semantics checked |
 | V2 Swift core | fp32 parity on every lane, both cases: tokenizer exact; AR argmax 100 %, logits ≤ 1.8e-6; NAR ≤ 1.6e-5 (velocity) / 4.8e-5 (32 steps); VAE ≤ 4.6e-6; e2e audio ≤ 1.7e-4 |
 | V2b tiers | bf16 and 8-bit (AR, NAR, both) pass the pre-registered velocity rule (≤ 1.6e-2); 4-bit AR fails through the cached prefix K/V (0.2 after 32 steps) — see MEASUREMENTS |
-| V3 engine | BLOCKED on AB-A-0201: `Capability` is core-owned, additive-only; no music case exists |
-| V4 publish | — (after V3; the CC BY-NC publishing decision is §1's) |
+| V3 engine | `MLXYuE2` on `Capability.music` (contract 1.56.0): planning full / off, score in and out, cfg, a 360 s cap; CC-BY-NC-4.0 weights (one advisory, never allowlisted), named-only; 16 offline conformance tests; one song + its score re-rendered per tier through `MLXServeEngine`; footprints from phys_footprint incl. the 360 s envelope — see MEASUREMENTS §V3 |
+| V4 publish | NOT started — the operator's decision (§1); what it would publish is listed in MEASUREMENTS §V3 |
 
 Package: `mlxengine-audio/PROD/YuE2/mlx-yue2-swift` (`YuE2Core`, `yue2-gates`, `Tools/`). Numbers: `MEASUREMENTS.md`.
 
@@ -144,11 +144,11 @@ oracle's semantic tokens (a seeded MPS/bf16 rollout — reference only, never a 
   quant risk (E17: fully 4-bit flow matching drifted to 12 % velocity error in the third-party port). Pre-registered
   rule per tier against the fp32 E lane: N1 relL2 ≤ 2e-2 (bf16) / 5e-2 (8-bit) / 1e-1 (4-bit AR only), plus a
   listening pass and an ASR check of the lyrics (mlx-whisper, WER vs the lyric sheet within 10 points of bf16).
-- **V3 engine** (`MLXYuE2`): a music capability does not exist in MLXEngine (E17: "a lyrics-to-song engine is a new
-  `Capability`"; AUDIO-EVALUATION §4.6 leaves the MES operation shape open). Ask to mlx-engine for the contract
-  (request {style, lyrics, cot mode, optional abc, seed, cfgScale, maxSeconds} → {48 kHz stereo audio, abc score,
-  latents}); the package lands on it when it exists. Licence per §1; footprints from `phys_footprint` (AB-L-0113)
-  through MLXServeEngine; C0–C13 conformance.
+- **V3 engine** (`MLXYuE2`): on `Capability.music` (contract 1.56.0, AB-A-0201 answered 2026-10-24; latents are not on
+  `MusicResponse`). Declares only what V2 gated: `.planning` with modes `full` (zh golden) and `off` (en golden, CFG
+  1.01) — `melody` has no golden and is refused —, `.score` (the A lane's prefix with supplied abc ids), `.guidanceScale`,
+  `maxDurationSeconds` 360 (the 9 000-token budget). Licence per §1; footprints from `phys_footprint` (AB-L-0113)
+  through MLXServeEngine plus an `envelope` lane at the 360 s / 4 096-score-token worst case; C0–C13 conformance.
 - **V4 publish** — xocialize/mlx-yue2-swift; weights per §1's publishing decision.
 
 ## 4. Budget (estimate from E17; measured numbers go to MEASUREMENTS.md)

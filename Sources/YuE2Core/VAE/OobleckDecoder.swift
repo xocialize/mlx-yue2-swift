@@ -165,15 +165,19 @@ public final class YuE2VAE: Module {
 
     /// `decode_tiled`: cores of `coreFrames` with `haloFrames` of context each side, cropped exactly, no blending.
     public func decodeTiled(_ latents: MLXArray, coreFrames: Int? = nil, haloFrames: Int? = nil,
-                            onTile: ((Int, Int) -> Void)? = nil) -> MLXArray {
+                            onTile: ((Int, Int) -> Void)? = nil, isCancelled: (() -> Bool)? = nil) throws -> MLXArray {
         let core = coreFrames ?? config.decode_core_frames, halo = haloFrames ?? config.decode_halo_frames
         let frames = latents.dim(0), ratio = config.downsampling_ratio
         let tiles = (frames + core - 1) / core
-        if tiles <= 1 { let y = decode(latents); eval(y); onTile?(1, 1); return y }
+        if tiles <= 1 {
+            if let isCancelled, isCancelled() { throw YuE2Error.cancelled("during the VAE decode") }
+            let y = decode(latents); eval(y); onTile?(1, 1); return y
+        }
         var total = -1
         var parts = [MLXArray]()
         var tileIndex = 0
         for start in stride(from: 0, to: frames, by: core) {
+            if let isCancelled, isCancelled() { throw YuE2Error.cancelled("during the VAE decode") }
             let end = min(frames, start + core)
             let left = max(0, start - halo), right = min(frames, end + halo)
             let tile = decode(latents[left ..< right])

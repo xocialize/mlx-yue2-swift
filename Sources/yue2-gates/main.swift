@@ -6,18 +6,28 @@
 //   yue2-gates vae       <golden> <vae>                   lane D: decode of the oracle's chunk latents, full + tiled
 //   yue2-gates e2e       <golden> <model> <vae> [out.wav] lane E: oracle tokens + noise → latents → audio
 //   yue2-gates render    <model> <vae> <request.json> <out.wav>   a real generation (seeded; not a gate)
+//   yue2-gates validate  <model> <vae> <request.json> <outdir>    V3: MLXServeEngine register → prepare → run (the song, then its
+//                                                      own planned score re-rendered) → refusals → evict, phys_footprint at each step
+//   yue2-gates envelope  <model> <vae> <score.abc>     V3: the input envelope — a 4 096-id score prefix + 9 000 codec frames (360 s)
+//                                                      through the NAR prefill, the 32-step solve and the VAE; phys_footprint peak
 //
-// Options (before the subcommand): --cpu, --dtype float32|bfloat16, --ar-bits N, --nar-bits N.
+// Options (before the subcommand): --cpu, --dtype float32|bfloat16, --ar-bits N, --nar-bits N; for validate / envelope:
+// --tier bf16|ar8|int8 (the package tiers; sets the bits), --cache-gb G (MLX cache limit, default 1).
 import Darwin
 import Foundation
 import MLX
 import MLXNN
+import MLXServeCore
+import MLXToolKit
+import MLXYuE2
 import YuE2Core
 
 var args = Array(CommandLine.arguments.dropFirst())
 var useCPU = false
 var dtype: DType = .float32
 var quant = YuE2Quantization.none
+var tier = YuE2Tier.bf16
+var cacheGB = 1.0
 while let a = args.first, a.hasPrefix("--") {
     args.removeFirst()
     switch a {
@@ -25,10 +35,12 @@ while let a = args.first, a.hasPrefix("--") {
     case "--dtype": dtype = ["bfloat16", "bf16"].contains(args.removeFirst()) ? .bfloat16 : .float32
     case "--ar-bits": quant.arBits = Int(args.removeFirst())
     case "--nar-bits": quant.narBits = Int(args.removeFirst())
+    case "--tier": tier = YuE2Tier(rawValue: args.removeFirst())!; quant = tier.quantization
+    case "--cache-gb": cacheGB = Double(args.removeFirst())!
     default: fatalError("unknown option \(a)")
     }
 }
-guard let cmd = args.first else { print("usage: yue2-gates [--cpu] [--dtype d] tokenizer|ar|nar|vae|e2e|render …"); exit(2) }
+guard let cmd = args.first else { print("usage: yue2-gates [--cpu] [--dtype d] [--tier t] tokenizer|ar|nar|vae|e2e|render|validate|envelope …"); exit(2) }
 let rest = Array(args.dropFirst())
 if useCPU { Device.setDefault(device: Device(.cpu)) }
 
@@ -129,7 +141,7 @@ func vaeGate(_ golden: URL, _ vaeDir: URL) throws {
     let lat = try npy(golden, "nar_latents")
     let full = vae.decode(lat)
     compare("audio_full", full.transposed(1, 0), try npy(golden, "vae_audio_full"))
-    let tiled = vae.decodeTiled(lat, coreFrames: 64, haloFrames: 16)
+    let tiled = try vae.decodeTiled(lat, coreFrames: 64, haloFrames: 16)
     compare("audio_tiled64", tiled.transposed(1, 0), try npy(golden, "vae_audio_tiled64"))
     compare("tiled_vs_full", tiled, full)
     let pass = rows[0].relL2 <= 1e-3 && rows[1].relL2 <= 1e-3 && rows[2].relL2 <= 1e-4   // tiled == full up to GPU conv-kernel rounding (length-dependent kernels; ~1e-5 abs)
@@ -148,7 +160,7 @@ func e2eGate(_ golden: URL, _ modelDir: URL, _ vaeDir: URL, _ out: String?) thro
     print("  NAR (\(codec.count) frames, prefix \(prefix.count)) in \(elapsed(t1))")
     compare("latents_full", lat, try npy(golden, "latents_full"))
     let t2 = Date()
-    let audio = pipe.decode(lat)
+    let audio = try pipe.decode(lat)
     eval(audio)
     print("  VAE in \(elapsed(t2))")
     compare("audio_ref", audio.transposed(1, 0), try npy(golden, "audio_ref"))
@@ -184,8 +196,159 @@ func render(_ modelDir: URL, _ vaeDir: URL, _ reqPath: URL, _ out: URL) throws {
     print("  wrote \(out.path)")
 }
 
+// MARK: - validate (V3): the consumer path — MLXServeEngine (default policy, advisory enforcement) register → prepare → run →
+// refusals → evict, phys_footprint at each step (the manifest's C-memory numbers). Bundles are given explicitly (the engine's MAT
+// path is not exercised: nothing is published before V4).
+
+var failures = 0
+func check(_ name: String, _ ok: Bool, _ detail: String = "") { if !ok { failures += 1 }; print("  \(name): \(ok ? "PASS" : "FAIL") \(detail)") }
+func gb(_ b: UInt64) -> String { String(format: "%.2f GB", Double(b) / 1e9) }
+func gb(_ b: Int) -> String { String(format: "%.2f GB", Double(b) / 1e9) }
+
+func pcm16(_ audio: Audio) -> [Float] {
+    audio.data.dropFirst(44).withUnsafeBytes { raw -> [Float] in raw.bindMemory(to: Int16.self).map { Float($0) / 32768 } }
+}
+
+func runValidate(_ modelDir: URL, _ vaeDir: URL, _ reqPath: URL, _ outDir: URL) async throws {
+    try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
+    let r = try JSONDecoder().decode(RequestJSON.self, from: Data(contentsOf: reqPath))
+    print("validate: MLXServeEngine → register → prepare → run (tier \(tier.rawValue), quant \(tier.quant)) → refusals → evict")
+    let sampler = Footprint.Sampler()
+    let before = sampler.mark()
+    let engine = MLXServeEngine()   // the default policy (.permissiveOnly, .advisory): CC-BY-NC-4.0 registers with ONE advisory
+    let t0 = Date()
+    let configuration = YuE2Configuration(tier: tier, modelDirectory: modelDir, vaeDirectory: vaeDir,
+                                          cacheLimitBytes: UInt64(cacheGB * Double(1 << 30)))
+    let id = try await engine.register(YuE2Package.registration, configuration: configuration, id: PackageID("yue2-3b"))
+    let advisories = await engine.licenseAdvisories
+    check("registered \(id.rawValue); licence advisories: \(advisories.count)",
+          advisories.count == 1 && advisories[0].license == "CC-BY-NC-4.0" && advisories[0].layer == .weight,
+          advisories.map(\.summary).joined(separator: "; "))
+    let needs = await engine.needsDownload(.music, package: id)
+    check("needsDownload == \(needs) with the explicit bundles", !needs)
+    try await engine.prepare(.music, package: id)
+    Thread.sleep(forTimeInterval: 0.3)
+    let afterLoad = sampler.mark()
+    let charged = await engine.memory.residentBytes
+    print(String(format: "  [VAL] prepared in %.1fs; phys_footprint %@ → %@ (resident +%@); MLX active %@; engine charges %@",
+                 Date().timeIntervalSince(t0), gb(before) as NSString, gb(afterLoad) as NSString, gb(Int(afterLoad) - Int(before)) as NSString,
+                 gb(Memory.activeMemory) as NSString, gb(charged) as NSString))
+    var peak = afterLoad
+    var afterSong = afterLoad
+    var planned: String? = nil
+    // run 1: the request as written (cot full → a planned score); run 2: that score supplied back (the edit-and-re-render loop)
+    for pass in 0 ..< 2 {
+        if pass == 1, planned == nil { break }
+        sampler.resetPeak()
+        let request = MusicRequest(caption: r.style, lyrics: r.lyrics, seed: UInt64(r.seed),
+                                   guidanceScale: r.cfg_scale.map(Double.init), planning: r.cot == "off" ? .off : .full,
+                                   score: pass == 1 ? planned : nil)
+        var phases: [String: Int] = [:]
+        let t = Date()
+        let response = try await RunProgress.$sink.withValue({ report in
+            phases[report.phase.rawValue, default: 0] += 1
+            if report.phase == .generate, let n = report.step, n % 1000 == 0 { FileHandle.standardError.write("  generate \(n)\n".data(using: .utf8)!) }
+        }) {
+            try await engine.run(request, package: id)
+        }
+        let wall = Date().timeIntervalSince(t)
+        Thread.sleep(forTimeInterval: 0.3)
+        peak = max(peak, sampler.peak)
+        afterSong = sampler.mark()
+        guard let m = response as? MusicResponse else { check("MusicResponse", false, "got \(type(of: response))"); return }
+        let samples = pcm16(m.audio)
+        let secs = Double(samples.count) / Double((m.audio.sampleRate ?? 48_000) * (m.audio.channels ?? 2))
+        let rms = 20 * log10(max(sqrt(samples.map { $0 * $0 }.reduce(0, +) / Float(max(samples.count, 1))), 1e-9))
+        let peakDB = 20 * log10(max(samples.map(abs).max() ?? 0, 1e-9))
+        let label = pass == 0 ? "song" : "re-render of its score"
+        let wantsScore = r.cot != "off"
+        check(String(format: "  [RUN] %@: %.2fs audio (%d Hz × %d ch), peak %.1f / rms %.1f dBFS, %.1fs wall (RTF %.2f), truncated %@, score %@ chars, phases %@, phys peak %@ after %@",
+                     label as NSString, secs, m.audio.sampleRate ?? 0, m.audio.channels ?? 0, peakDB, rms, wall, wall / max(secs, 1e-9),
+                     "\(m.truncated)" as NSString, "\(m.score?.count ?? 0)" as NSString, "\(phases.sorted { $0.key < $1.key })" as NSString,
+                     gb(sampler.peak) as NSString, gb(afterSong) as NSString),
+              secs > 10 && secs <= YuE2Package.maxDurationSeconds && rms > -40 && rms < -3 && m.audio.sampleRate == 48_000 && m.audio.channels == 2
+                  && (phases["generate"] ?? 0) >= 200 && (phases["denoise"] ?? 0) >= 32 && (phases["decode"] ?? 0) >= 1
+                  && (phases["postprocess"] ?? 0) == 1 && (pass == 1 ? (phases["plan"] ?? 0) == 0 : (phases["plan"] ?? 0) > (wantsScore ? 31 : -1))
+                  && (wantsScore ? m.score != nil : m.score == nil) && (pass == 1 ? m.score == planned : true))
+        try m.audio.data.write(to: outDir.appendingPathComponent("engine_\(tier.rawValue)_\(pass == 0 ? "song" : "rerender").wav"))
+        if let score = m.score { try score.write(to: outDir.appendingPathComponent("engine_\(tier.rawValue)_\(pass == 0 ? "song" : "rerender").abc"), atomically: true, encoding: .utf8) }
+        if pass == 0 { planned = m.score }
+    }
+    // the engine refuses an undeclared feature / out-of-vocabulary value BEFORE admission (MusicControls.refusal); the package
+    // refuses its own bounds (empty lyrics, score + off, cfg range) inside run()
+    for (label, bad) in [
+        ("planning melody (undeclared mode)", MusicRequest(caption: r.style, lyrics: r.lyrics, planning: .melody)),
+        ("edit/cover (undeclared)", MusicRequest(caption: r.style, lyrics: r.lyrics, edit: MusicEdit(source: Audio(format: .wav, data: Data([1, 2, 3])), operation: .cover(strength: 0.5)))),
+        ("referenceAudio (undeclared)", MusicRequest(caption: r.style, lyrics: r.lyrics, referenceAudio: Audio(format: .wav, data: Data([1, 2, 3])))),
+        ("vocalLanguage en (undeclared)", MusicRequest(caption: r.style, lyrics: r.lyrics, vocalLanguage: "en")),
+        ("anchors bpm 88 (undeclared)", MusicRequest(caption: r.style, lyrics: r.lyrics, anchors: MusicAnchors(bpm: 88))),
+        ("durationSeconds 400 (> 360)", MusicRequest(caption: r.style, lyrics: r.lyrics, durationSeconds: 400)),
+        ("empty lyrics", MusicRequest(caption: r.style, lyrics: " ")),
+        ("score with planning off", MusicRequest(caption: r.style, lyrics: r.lyrics, planning: .off, score: "X:1\nK:C\nCDEF|")),
+        ("guidanceScale 25", MusicRequest(caption: r.style, lyrics: r.lyrics, guidanceScale: 25)),
+    ] {
+        do { _ = try await engine.run(bad, package: id); check("  refused: \(label)", false, "ADMITTED") }
+        catch { check("  refused: \(label)", error is PackageError, String(describing: error).prefix(110).description) }
+    }
+    await engine.evict(package: id)
+    Thread.sleep(forTimeInterval: 0.3)
+    let afterEvict = sampler.mark()
+    _ = sampler.stop()
+    print(String(format: "  [VAL] %@: resident %@ (phys after prepare − before), %@ after the songs; peak phys %@ (activation %@ over the post-prepare resident); after evict %@; MLX peak %@",
+                 tier.rawValue as NSString, gb(Int(afterLoad) - Int(before)) as NSString, gb(Int(afterSong) - Int(before)) as NSString, gb(peak) as NSString,
+                 gb(Int(peak) - Int(afterLoad)) as NSString, gb(afterEvict) as NSString, gb(Memory.peakMemory) as NSString))
+    print(failures == 0 ? "RESULT: PASS" : "RESULT: FAIL (\(failures) checks)")
+}
+
+// MARK: - envelope (V3): the worst case the declaration admits — a score prefix at the 4 096-token budget and 9 000 codec frames
+// (the 360 s cap), i.e. the longest NAR prefill (prefix + 9 001 AR tokens) and the longest acoustic chunk, then the VAE. Loaded
+// exactly as `YuE2Package.load` loads (bf16 bundle, the tier's quantisation, the same cache limit). phys_footprint is sampled.
+
+func runEnvelope(_ modelDir: URL, _ vaeDir: URL, _ scorePath: URL) throws {
+    let sampler = Footprint.Sampler()
+    let before = sampler.mark()
+    Memory.cacheLimit = Int(cacheGB * Double(1 << 30))
+    let t0 = Date()
+    let pipe = try YuE2Pipeline.load(modelDir: modelDir, vaeDir: vaeDir, dtype: .bfloat16, quantization: tier.quantization)
+    Memory.clearCache()
+    Thread.sleep(forTimeInterval: 0.3)
+    let afterLoad = sampler.mark()
+    print(String(format: "envelope (tier %@): loaded in %.1fs; phys %@ → %@ (resident +%@)", tier.rawValue as NSString,
+                 Date().timeIntervalSince(t0), gb(before) as NSString, gb(afterLoad) as NSString, gb(Int(afterLoad) - Int(before)) as NSString))
+    let abc = try String(contentsOf: scorePath, encoding: .utf8)
+    var ids = [Int]()
+    let unit = pipe.tokenizer.encode(abc + "\n")
+    while ids.count < 4096 { ids += unit }
+    ids = Array(ids.prefix(4096))
+    let req = try SongRequest(style: "English, warm piano pop, expressive female voice", lyrics: "[Verse]\nla la la", mode: .full, seed: 1)
+    let prefix = try req.prefix(pipe.tokenizer, abcIDs: ids)
+    var rng = SystemRandomNumberGenerator()
+    let codec = (0 ..< 9000).map { _ in Int.random(in: 0 ..< YuE2Protocol.codecSize, using: &rng) }
+    sampler.resetPeak()
+    let t1 = Date()
+    let lat = try NARSolver.synthesize(model: pipe.model, prefix: prefix, codec: codec, noise: nil, seed: 1, steps: pipe.generation.ode_steps)
+    eval(lat)
+    let narPeak = sampler.peak
+    let t2 = Date()
+    let audio = try pipe.decode(lat)
+    eval(audio)
+    Thread.sleep(forTimeInterval: 0.3)
+    let peak = max(narPeak, sampler.peak)
+    _ = sampler.stop()
+    print(String(format: "  prefix %d ids + %d frames: NAR %.1fs (phys peak %@), VAE %.1fs → %.1fs of audio; phys peak %@ (activation %@ over the resident); MLX peak %@",
+                 prefix.count, codec.count, t2.timeIntervalSince(t1), gb(narPeak) as NSString, Date().timeIntervalSince(t2), Double(audio.dim(0)) / 48_000,
+                 gb(peak) as NSString, gb(Int(peak) - Int(afterLoad)) as NSString, gb(Memory.peakMemory) as NSString))
+}
+
 do {
     switch cmd {
+    case "validate":
+        guard rest.count == 4 else { print("validate <model> <vae> <request.json> <outdir>"); exit(2) }
+        try await runValidate(url(rest[0]), url(rest[1]), url(rest[2]), url(rest[3]))
+        exit(failures == 0 ? 0 : 1)
+    case "envelope":
+        guard rest.count == 3 else { print("envelope <model> <vae> <score.abc>"); exit(2) }
+        try runEnvelope(url(rest[0]), url(rest[1]), url(rest[2]))
     case "tokenizer": try tokenizerGate(url(rest[0]), url(rest[1]))
     case "ar": try arGate(url(rest[0]), url(rest[1]))
     case "nar": try narGate(url(rest[0]), url(rest[1]))

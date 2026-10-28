@@ -13,7 +13,11 @@
 //                 top-k / top-p, optional two-branch CFG.
 //   • NAR       — flow matching: the AR prefix prefilled once per chunk, 32-step midpoint over the NAR path.
 //   • VAE       — Oobleck decoder (fp32): 64-dim latents at 25 Hz → 48 kHz stereo, exact tiled decode.
-//   • yue2-gates — parity gates against the fp32 torch oracle (WIP/yue2-port/oracle) + a render lane.
+//   • MLXYuE2   — the engine-facing package on `Capability.music` (mlx-engine-swift contract 1.56.0, AB-A-0201): style +
+//                 lyrics, the planning mode (full / off) with the ABC score in and out, seed, cfg, a length cap; CC-BY-NC-4.0
+//                 weights (never allowlisted), named-only; tiers bf16 / ar8 / int8 with `phys_footprint` footprints.
+//   • yue2-gates — parity gates against the fp32 torch oracle (WIP/yue2-port/oracle), a render lane, and the V3 validate /
+//                 envelope lanes (MLXServeEngine register → prepare → run → refusals → evict).
 import PackageDescription
 
 let package = Package(
@@ -21,10 +25,12 @@ let package = Package(
     platforms: [.macOS(.v26)],
     products: [
         .library(name: "YuE2Core", targets: ["YuE2Core"]),
+        .library(name: "MLXYuE2", targets: ["MLXYuE2"]),
         .executable(name: "yue2-gates", targets: ["yue2-gates"]),
     ],
     dependencies: [
         .package(url: "https://github.com/ml-explore/mlx-swift", from: "0.32.3"),
+        .package(url: "https://github.com/xocialize/mlx-engine-swift", from: "0.71.0"),
     ],
     targets: [
         .target(
@@ -38,10 +44,22 @@ let package = Package(
             path: "Sources/YuE2Core",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+        .target(
+            name: "MLXYuE2",
+            dependencies: [
+                "YuE2Core",
+                .product(name: "MLXToolKit", package: "mlx-engine-swift"),
+                .product(name: "MLX", package: "mlx-swift"),
+            ],
+            path: "Sources/MLXYuE2",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
         .executableTarget(
             name: "yue2-gates",
             dependencies: [
-                "YuE2Core",
+                "YuE2Core", "MLXYuE2",
+                .product(name: "MLXToolKit", package: "mlx-engine-swift"),
+                .product(name: "MLXServeCore", package: "mlx-engine-swift"),
                 .product(name: "MLX", package: "mlx-swift"),
                 .product(name: "MLXNN", package: "mlx-swift"),
             ],
@@ -52,6 +70,15 @@ let package = Package(
             name: "YuE2CoreTests",
             dependencies: ["YuE2Core"],
             path: "Tests/YuE2CoreTests"
+        ),
+        .testTarget(
+            name: "MLXYuE2Tests",
+            dependencies: [
+                "YuE2Core", "MLXYuE2",
+                .product(name: "MLXServeConformance", package: "mlx-engine-swift"),
+                .product(name: "MLXServeCore", package: "mlx-engine-swift"),
+            ],
+            path: "Tests/MLXYuE2Tests"
         ),
     ]
 )

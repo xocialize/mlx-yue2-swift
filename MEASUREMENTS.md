@@ -89,9 +89,86 @@ So an 84 s song renders in 43 s at bf16 — about 0.5× real time — against E1
 stage is 11 s for 2100 frames (64 velocity evals). Memory is MLX-accounted (`Memory.peakMemory`); the declared
 footprint comes from `phys_footprint` through MLXServeEngine at V3 (AB-L-0113).
 
+## V3 — engine package `MLXYuE2` through MLXServeEngine (2026-10-28)
+
+mlx-engine-swift 0.72.0 (contract 1.57.0; the music capability is 1.56.0), default engine policy (`.permissiveOnly`,
+`.advisory`), MLX cache 1 GiB, bundles `weights/YuE2-3B-bf16` + `weights/YuE2-Vae-fp32` given explicitly (nothing is
+published; the MAT path is covered offline). Logs: `receipts/v3-validate-{bf16,ar8,int8,bf16-off}.log`,
+`receipts/v3-envelope-{bf16,ar8,int8}.log`, `receipts/v3-lane-d-recheck.txt`; audio + scores in `v3/out*/`. Driver
+`v3/run_v3.sh` (one model process at a time).
+
+**Offline conformance (17 tests, `MLXYuE2Tests`).** C0 contract ≥ 1.56.0; C1 `music` only; C7 `CC-BY-NC-4.0` weights —
+`.rejectedWeight` under `.permissiveOnly` AND `.permissiveOrAcknowledged` (on neither allowlist), refused under `.blocking`,
+one weight advisory under the default; the operator's notice (`YuE2Licence.notice`, AB-D-0161) as the one `.required`
+`LicenseNotice` with the HF terms URL, the rights note and the named-only / accepted-before-first-use / conditional
+commercial-use line `.informational`; C8 MIT; C9 Codable without environment URLs; C10 split footprints; C11 the surface
+advertises exactly caption / lyrics / durationSeconds / seed / guidanceScale / planning / score, `declarationProblems`
+empty; C12 `@unknown default` on the planning switch; C13 + CAN-1..3 (pre-cancelled run → `CancellationError`;
+checkpoints per score token, codec token, ODE step and VAE tile — the VAE tile checkpoint is new in the Core at V3); MAT
+per tier (two roles: `model`, `vae`); the request plane (14 refusals: melody, edit, reference, anchors, language, > 360 s,
+0 s, empty caption / lyrics / score, score + off, cfg 21 / −1 / NaN).
+
+**Declared** (`MusicControls`): `features [.planning, .score, .guidanceScale]`, `planningModes [.full, .off]`,
+`maxDurationSeconds 360`. `.melody` is NOT declared — no golden covers it. `durationSeconds` caps the codec tokens (× 25 Hz,
+≤ 9 000).
+
+**Live, one song per tier** (upstream's `examples/song.json` "city_lights", English piano pop, cot=full, seed 831001;
+then the song's own planned score supplied back as `MusicRequest.score`, then nine requests that must be refused, then
+evict):
+
+| tier | phys after prepare | song | re-render of its score | peak phys (songs) | after evict | result |
+|---|---|---|---|---|---|---|
+| bf16 | 7.60 GB | 57.68 s, 476 score + 1442 codec tokens, rms −19.7 dBFS, **40.7 s wall (RTF 0.71)** | byte-identical WAV + score, 32.9 s | 14.39 GB | 0.30 GB | PASS |
+| ar8 (8-bit AR) | 6.40 GB | 58.32 s, rms −19.7 dBFS, 29.9 s wall † | byte-identical, 24.4 s † | 12.36 GB | 0.30 GB | PASS |
+| int8 (8-bit AR + NAR) | 5.08 GB | 58.32 s, rms −19.7 dBFS, 30.2 s wall † | byte-identical, 25.3 s † | 11.32 GB | 0.30 GB | PASS |
+| bf16, cot=off (en golden request, CFG 1.01) | 7.60 GB | 69.44 s, 1736 codec tokens, rms −17.2 dBFS, no score returned, 56.5 s wall † | — (no score) | 14.14 GB | 0.30 GB | PASS |
+
+Every run: one licence advisory (`CC-BY-NC-4.0 … outside permissiveOnly`), `needsDownload` false, 48 kHz × 2 ch,
+`truncated` false (the song ended on MUSIC_END), the phases plan → generate → denoise (32) → decode → postprocess, and all
+nine refusals (melody, cover, referenceAudio, vocalLanguage, anchors, 400 s, empty lyrics, score + off, cfg 25) thrown
+as `PackageError.unsupportedRequestFeature` — the first six by the engine before admission. The re-render being
+byte-identical to the planned song on every tier is the score path's receipt: a supplied score reproduces the plan's
+prefix exactly, so an edited score re-renders deterministically from the same seed.
+
+**Envelope** (`envelope` lane, the same load as `YuE2Package.load`): a 4 096-id score (the abc budget) + text = 4 144-id
+prefix, 9 000 random codec frames (the 360 s cap) → one NAR chunk (AR prefill of 13 145 tokens + 32 midpoint steps over
+9 002 positions) → VAE (9 tiles) → 360.0 s of audio.
+
+| tier | resident | NAR phys peak | overall phys peak | activation over resident | NAR / VAE wall † |
+|---|---|---|---|---|---|
+| bf16 | 7.58 GB | 11.18 GB | **14.58 GB** | 7.00 GB | 102.6 / 8.6 s |
+| ar8 | 6.38 GB | 9.67 GB | **13.27 GB** | 6.89 GB | 101.4 / 8.9 s |
+| int8 | 5.06 GB | 8.36 GB | **11.92 GB** | 6.86 GB | 124.8 / 9.3 s |
+
+The peak is the VAE (the NAR stage stays ~3.5 GB above resident); the activation is ~7 GB on every tier because it is
+activations, not weights. **Declared** (`QuantFootprint` / `FootprintConfigured`): bf16 8.0 + 7.5 GB, int8 5.5 + 7.5 GB,
+ar8 resident hint 7.0 GB on the shared `.int8` activation — each ≥ its envelope peak. By the engine's 0.7 × RAM rule
+every tier fits a 24 GB Mac and none a 16 GB Mac.
+
+**Lane D re-check** after the VAE tile checkpoint: audio relL2 4.6e-6 / 8.9e-7 (full), 3.0e-6 / 8.6e-7 (tiled), tiled ==
+full 2.7e-6 / 4.4e-7 — unchanged from V2.
+
+† **Speed caveat.** From 09:06:40 the E27 HeartMuLa V0 render (torch-MPS, ~22 GB phys, another process) shared the GPU.
+The bf16 city_lights song (≈ 09:05:30–09:06:15) ran before it; its re-render overlapped for its last few seconds; every
+other wall time above overlapped it and is inflated. phys_footprint is per-process, so the memory figures stand. No speed
+is declared on the manifest.
+
+**What V4 would publish (NOT done — the operator's decision, PORTING-SPEC §1):**
+- Code: `xocialize/mlx-yue2-swift` (MIT; `YuE2Core`, `MLXYuE2`, `yue2-gates`, `Tools/`), first tag v0.1.0.
+- Weights, if the CC BY-NC case is cleared for mlx-community: `mlx-community/YuE2-3B-bf16` (the converter's bundle,
+  7.26 GB — `model.safetensors`, `config.json` with the `mlx_yue2` section, `qwen.tiktoken`) and
+  `mlx-community/YuE2-Vae-fp32` (265 MB `decoder.safetensors`, weight_norm folded, encoder dropped) — the repo names
+  `YuE2Configuration` already declares — each with the HF `LICENSE`, the GitHub `MODEL_LICENSE`, `NOTICE` (attribution:
+  YuE2, the model name, the repo; a modification statement per CC BY-NC 4.0 §3(a)(1)(B)), `THIRD_PARTY_NOTICES.md` and a
+  card stating non-commercial use and the individual-creator permission. Optional: `YuE2-Vae-legacy-fp32` (the paper
+  decoder; the package does not load it) and pre-quantised 8-bit bundles (the tiers quantise at load today).
+- Then: pin the revisions in `YuE2Configuration`, a fresh-download render through the engine, and the registry row
+  (mlx-engine's `model-registry.md`, asked of mlx-engine).
+
 ## Not measured
 
-- A 3-min song (the model card's 71 s / 3.6-min song on an RTX 4090 at 139 tok/s is the comparison point; at 108 tok/s
-  and 11 s per 2100 NAR frames, ≈ 65 s + 25 s + 20 s ≈ 2 min is the arithmetic, unmeasured).
-- `cot=off` and `melody` renders, supplied-ABC re-renders, CFG 1.2.
-- phys_footprint (needs the engine package, V3).
+- A sampled 3-min song (the engine songs ended on their own at 58–69 s; the 360 s envelope is teacher-forced).
+- `melody` renders (not declared), CFG 1.2.
+- Speed for the 8-bit tiers and the cot=off song without another GPU process (see † above).
+- The 360 s envelope through the AR sampler itself (the envelope lane prefills the 13 k tokens in one pass; token-by-token
+  decoding to 9 000 holds less at once).
